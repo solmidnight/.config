@@ -22,79 +22,94 @@ vim.opt.updatetime = 50          -- Faster update time for better UX
 vim.opt.colorcolumn = "100"      -- Highlight column 100 for reference
 vim.g.mapleader = " "            -- Use space as leader key
 
--- Ensure packer is installed
-local install_path = vim.fn.stdpath('data') .. '/site/pack/packer/start/packer.nvim'
-if vim.fn.empty(vim.fn.glob(install_path)) > 0 then
-  vim.fn.system({'git', 'clone', '--depth', '1', 'https://github.com/wbthomason/packer.nvim', install_path})
-  vim.cmd [[packadd packer.nvim]]
-end
+-- Clipboard integration
+vim.opt.clipboard = "unnamedplus"  -- Use system clipboard for all operations
 
--- Plugin management with Packer
-require('packer').startup(function(use)
-  -- Packer can manage itself
-  use 'wbthomason/packer.nvim'
-  
+-- Ensure lazy.nvim is installed (replacing packer)
+local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
+if not vim.loop.fs_stat(lazypath) then
+  vim.fn.system({
+    "git",
+    "clone",
+    "--filter=blob:none",
+    "https://github.com/folke/lazy.nvim.git",
+    "--branch=stable",
+    lazypath,
+  })
+end
+vim.opt.rtp:prepend(lazypath)
+
+-- Plugin management with lazy.nvim
+require("lazy").setup({
   -- Theme
-  use { "catppuccin/nvim", as = "catppuccin" }
+  { "catppuccin/nvim", name = "catppuccin", priority = 1000 },
   
   -- File explorer
-  use {
+  {
     'nvim-tree/nvim-tree.lua',
-    requires = {
+    dependencies = {
       'nvim-tree/nvim-web-devicons',
     }
-  }
+  },
   
   -- Fuzzy finder
-  use {
-    'nvim-telescope/telescope.nvim', 
-    requires = { 
-      {'nvim-lua/plenary.nvim'},
-      {'nvim-telescope/telescope-fzf-native.nvim', run = 'make'},
-      {'nvim-telescope/telescope-ui-select.nvim'},
+  "https://github.com/nvim-neotest/nvim-nio",
+  {
+    'nvim-telescope/telescope.nvim',
+    dependencies = { 
+      'nvim-lua/plenary.nvim',
+      'nvim-telescope/telescope-fzf-native.nvim',
+      'nvim-telescope/telescope-ui-select.nvim',
     }
-  }
+  },
+  { 'nvim-telescope/telescope-fzf-native.nvim', build = 'make' },
   
   -- LSP Configuration
-  use 'neovim/nvim-lspconfig'
-  use 'simrat39/rust-tools.nvim'
+  { 'neovim/nvim-lspconfig' },
+  { 'simrat39/rust-tools.nvim' },
+  
+  -- Mason for managing LSP servers, formatters, and linters
+  {
+    "williamboman/mason.nvim",
+    "williamboman/mason-lspconfig.nvim",
+  },
   
   -- Completion
-  use 'hrsh7th/nvim-cmp'
-  use 'hrsh7th/cmp-nvim-lsp'
-  use 'hrsh7th/cmp-buffer'
-  use 'hrsh7th/cmp-path'
-  use 'L3MON4D3/LuaSnip'
-  use 'saadparwaiz1/cmp_luasnip'
+  { 'hrsh7th/nvim-cmp' },
+  { 'hrsh7th/cmp-nvim-lsp' },
+  { 'hrsh7th/cmp-buffer' },
+  { 'hrsh7th/cmp-path' },
+  { 'L3MON4D3/LuaSnip' },
+  { 'saadparwaiz1/cmp_luasnip' },
   
   -- Treesitter for better syntax highlighting
-  use {
+  {
     'nvim-treesitter/nvim-treesitter',
-    run = ':TSUpdate'
-  }
+    build = ':TSUpdate'
+  },
   
   -- Status line
-  use {
+  {
     'nvim-lualine/lualine.nvim',
-    requires = { 'nvim-tree/nvim-web-devicons', opt = true }
-  }
+    dependencies = { 'nvim-tree/nvim-web-devicons' }
+  },
   
   -- Git integration
-  use 'lewis6991/gitsigns.nvim'
+  { 'lewis6991/gitsigns.nvim' },
   
   -- Auto-pairs
-  use 'windwp/nvim-autopairs'
+  { 'windwp/nvim-autopairs' },
 
   -- Which key for key binding hints
-  use 'folke/which-key.nvim'
+  { 'folke/which-key.nvim' },
   
   -- Comments
-  use 'numToStr/Comment.nvim'
+  { 'numToStr/Comment.nvim' },
   
   -- Debugging
-  use 'mfussenegger/nvim-dap'
-  use 'rcarriga/nvim-dap-ui'
-end)
+  { 'mfussenegger/nvim-dap' },
+  { 'rcarriga/nvim-dap-ui' },
+})
 
 -- Theme setup
 require("catppuccin").setup({
@@ -135,6 +150,26 @@ require("catppuccin").setup({
 })
 
 vim.cmd.colorscheme "catppuccin"
+
+-- Mason setup
+require("mason").setup({
+  ui = {
+    icons = {
+      package_installed = "✓",
+      package_pending = "➜",
+      package_uninstalled = "✗"
+    }
+  }
+})
+
+require("mason-lspconfig").setup({
+  ensure_installed = { 
+    "rust_analyzer",  -- Rust
+    "tsserver",       -- TypeScript/JavaScript
+    "zls",            -- Zig
+  },
+  automatic_installation = true,
+})
 
 -- NvimTree setup
 require('nvim-tree').setup {
@@ -246,8 +281,8 @@ require('telescope').setup {
 }
 
 -- Load telescope extensions
-require('telescope').load_extension('fzf')
-require('telescope').load_extension('ui-select')
+pcall(require('telescope').load_extension, 'fzf')
+pcall(require('telescope').load_extension, 'ui-select')
 
 -- LSP setup
 local lspconfig = require('lspconfig')
