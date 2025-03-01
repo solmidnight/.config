@@ -27,8 +27,36 @@ vim.opt.showmode = false         -- Don't show mode in command line (lualine han
 vim.opt.confirm = false          -- Don't ask for confirmation, just do it
 vim.opt.shortmess = vim.opt.shortmess + "Ic" -- Shorten messages and avoid 'press enter' prompts
 
--- Clipboard integration
-vim.opt.clipboard = "unnamedplus"  -- Use system clipboard for all operations
+-- Advanced clipboard integration - works in SSH and Docker containers
+-- Check if we're in an SSH session
+local in_ssh = (os.getenv("SSH_CLIENT") ~= nil) or (os.getenv("SSH_TTY") ~= nil)
+-- Check if we're in a Docker container
+local in_docker = io.open("/proc/1/cgroup", "r") ~= nil and io.open("/proc/1/cgroup", "r"):read("*all"):find("docker") ~= nil
+
+-- Clipboard configuration with fallbacks for SSH/Docker
+if vim.fn.has('clipboard') == 1 then
+  -- If direct clipboard access is available, use it
+  vim.opt.clipboard = "unnamedplus"
+else
+  -- If we're in SSH or Docker environment, set up OSC52 clipboard support
+  -- OSC52 allows yanking to system clipboard through terminal escape sequence
+  vim.api.nvim_create_autocmd("TextYankPost", {
+    pattern = "*",
+    callback = function()
+      -- For ALL yanks (not just those with no register specified)
+      local text = vim.fn.getreg('"')
+      -- Encode the text as base64
+      local encoded_text = vim.fn.system("base64 | tr -d '\n'", text)
+      -- Send the OSC52 escape sequence to the terminal
+      local osc52 = string.format("\x1b]52;c;%s\x07", encoded_text)
+      -- Write to terminal
+      io.stdout:write(osc52)
+    end
+  })
+end
+
+-- Ensure OSC52 works with nvim's built-in terminal too
+vim.g.terminal_osc52 = ''
 
 -- Ensure lazy.nvim is installed (replacing packer)
 local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
