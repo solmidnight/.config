@@ -21,6 +21,11 @@ vim.opt.signcolumn = "yes"       -- Always show the sign column
 vim.opt.updatetime = 50          -- Faster update time for better UX
 vim.opt.colorcolumn = "100"      -- Highlight column 100 for reference
 vim.g.mapleader = " "            -- Use space as leader key
+vim.opt.errorbells = false       -- Disable error bells
+vim.opt.visualbell = false       -- Disable visual bell
+vim.opt.showmode = false         -- Don't show mode in command line (lualine handles this)
+vim.opt.confirm = false          -- Don't ask for confirmation, just do it
+vim.opt.shortmess = vim.opt.shortmess + "Ic" -- Shorten messages and avoid 'press enter' prompts
 
 -- Clipboard integration
 vim.opt.clipboard = "unnamedplus"  -- Use system clipboard for all operations
@@ -53,7 +58,7 @@ require("lazy").setup({
   },
   
   -- Fuzzy finder
-  "https://github.com/nvim-neotest/nvim-nio",
+  "nvim-neotest/nvim-nio",
   {
     'nvim-telescope/telescope.nvim',
     dependencies = { 
@@ -151,6 +156,19 @@ require("catppuccin").setup({
 
 vim.cmd.colorscheme "catppuccin"
 
+-- Set default filetype for files with no extension to Zig
+vim.api.nvim_create_autocmd({"BufNewFile", "BufRead"}, {
+  pattern = "*",
+  callback = function()
+    local filename = vim.fn.expand("%:p")
+    local ext = vim.fn.fnamemodify(filename, ":e")
+    -- If there's no extension and it's not a directory or special file
+    if ext == "" and vim.fn.isdirectory(filename) == 0 and not string.match(filename, "^%a+://") then
+      vim.bo.filetype = "zig"
+    end
+  end,
+})
+
 -- Mason setup
 require("mason").setup({
   ui = {
@@ -165,8 +183,8 @@ require("mason").setup({
 require("mason-lspconfig").setup({
   ensure_installed = { 
     "rust_analyzer",  -- Rust
-    "tsserver",       -- TypeScript/JavaScript
     "zls",            -- Zig
+    "eslint",         -- JavaScript
   },
   automatic_installation = true,
 })
@@ -322,8 +340,11 @@ require('rust-tools').setup({
   },
 })
 
--- JavaScript/TypeScript LSP setup
-lspconfig.tsserver.setup {}
+-- JavaScript LSP setup with JSDoc support
+lspconfig.eslint.setup {}
+
+-- Zig language settings
+lspconfig.zls.setup {}
 
 -- Setup completion
 local cmp = require('cmp')
@@ -371,14 +392,59 @@ cmp.setup({
 
 -- Treesitter setup
 require('nvim-treesitter.configs').setup {
-  ensure_installed = { "rust", "toml", "lua", "javascript", "typescript", "zig" },
+  ensure_installed = { "rust", "toml", "lua", "javascript", "zig" },
   sync_install = false,
-  auto_install = true,
+  auto_install = false, -- Disable automatic installation
   highlight = {
     enable = true,
     additional_vim_regex_highlighting = false,
   },
 }
+
+-- Create a custom function to toggle distraction-free mode
+vim.api.nvim_create_user_command('ToggleDistractionFree', function()
+  -- Get current state - we'll toggle based on diagnostics being visible
+  local current_diagnostics = vim.diagnostic.is_disabled()
+  
+  if current_diagnostics then
+    -- Re-enable diagnostics
+    vim.diagnostic.enable()
+    
+    -- Restore the default notification handler
+    vim.notify = vim._original_notify
+    
+    -- Restore LSP message handlers
+    vim.lsp.handlers["textDocument/hover"] = vim._original_hover_handler
+    vim.lsp.handlers["textDocument/signatureHelp"] = vim._original_signature_handler
+    vim.lsp.handlers["textDocument/publishDiagnostics"] = vim._original_diagnostic_handler
+    
+    print("Distraction-free mode disabled. LSP features restored.")
+  else
+    -- Save original handlers before disabling
+    if not vim._original_notify then
+      vim._original_notify = vim.notify
+      vim._original_hover_handler = vim.lsp.handlers["textDocument/hover"]
+      vim._original_signature_handler = vim.lsp.handlers["textDocument/signatureHelp"]
+      vim._original_diagnostic_handler = vim.lsp.handlers["textDocument/publishDiagnostics"]
+    end
+    
+    -- Disable diagnostics
+    vim.diagnostic.disable()
+    
+    -- Silence notifications
+    vim.notify = function(_, _, _) return end
+    
+    -- Disable LSP message handlers
+    vim.lsp.handlers["textDocument/hover"] = function() end
+    vim.lsp.handlers["textDocument/signatureHelp"] = function() end
+    vim.lsp.handlers["textDocument/publishDiagnostics"] = function() end
+    
+    print("Distraction-free mode enabled. All interruptions suppressed.")
+  end
+end, {})
+
+-- Add keybinding to toggle distraction-free mode
+vim.keymap.set('n', '<leader>z', ':ToggleDistractionFree<CR>', { desc = "Toggle distraction-free mode" })
 
 -- Lualine setup
 require('lualine').setup {
@@ -450,6 +516,8 @@ wk.register({
   r = { name = "Rust" },
   d = { name = "Debug" },
   g = { name = "Git" },
+  j = { name = "JavaScript" },
+  z = { name = "Zig" },
 }, { prefix = "<leader>" })
 
 -- Comment setup
@@ -579,12 +647,12 @@ vim.keymap.set('n', '<leader>dl', dap.run_last, { desc = "Run last" })
 
 -- Custom key mappings
 -- General workflow keys
-vim.keymap.set('n', '<leader>w', '<cmd>w<CR>', { desc = "Save file" })
-vim.keymap.set('n', '<leader>q', '<cmd>q<CR>', { desc = "Quit" })
-vim.keymap.set('n', '<leader>Q', '<cmd>q!<CR>', { desc = "Force quit" })
-vim.keymap.set('n', '<C-s>', '<cmd>w<CR>', { desc = "Save file" })
-vim.keymap.set('n', '<leader>bk', '<cmd>bdelete<CR>', { desc = "Kill buffer" })
-vim.keymap.set('n', '<leader>/', '<cmd>nohlsearch<CR>', { desc = "Clear search highlight" })
+vim.keymap.set('n', '<leader>w', '<cmd>silent w<CR>', { desc = "Save file" })
+vim.keymap.set('n', '<leader>q', '<cmd>silent q<CR>', { desc = "Quit" })
+vim.keymap.set('n', '<leader>Q', '<cmd>silent q!<CR>', { desc = "Force quit" })
+vim.keymap.set('n', '<C-s>', '<cmd>silent w<CR>', { desc = "Save file" })
+vim.keymap.set('n', '<leader>bk', '<cmd>silent bdelete<CR>', { desc = "Kill buffer" })
+vim.keymap.set('n', '<leader>/', '<cmd>silent nohlsearch<CR>', { desc = "Clear search highlight" })
 
 -- Window navigation
 vim.keymap.set('n', '<C-h>', '<C-w>h', { desc = "Move to left window" })
@@ -627,12 +695,12 @@ vim.keymap.set('n', '<leader>fk', telescope_builtin.keymaps, { desc = "Find keym
 vim.keymap.set('n', '<C-p>', telescope_builtin.git_files, { desc = "Find git files" })
 
 -- Rust-specific shortcuts
-vim.keymap.set('n', '<leader>rr', ':RustRunnables<CR>', { noremap = true, silent = true })
-vim.keymap.set('n', '<leader>rt', ':RustTest<CR>', { noremap = true, silent = true })
-vim.keymap.set('n', '<leader>rm', ':RustExpandMacro<CR>', { noremap = true, silent = true })
-vim.keymap.set('n', '<leader>rc', ':RustOpenCargo<CR>', { noremap = true, silent = true })
-vim.keymap.set('n', '<leader>rp', ':RustParentModule<CR>', { noremap = true, silent = true })
-vim.keymap.set('n', '<leader>rd', ':RustDebuggables<CR>', { noremap = true, silent = true })
+vim.keymap.set('n', '<leader>rr', ':RustRunnables<CR>', { noremap = true, silent = true, desc = "Rust runnables" })
+vim.keymap.set('n', '<leader>rt', ':RustTest<CR>', { noremap = true, silent = true, desc = "Rust test" })
+vim.keymap.set('n', '<leader>rm', ':RustExpandMacro<CR>', { noremap = true, silent = true, desc = "Rust expand macro" })
+vim.keymap.set('n', '<leader>rc', ':RustOpenCargo<CR>', { noremap = true, silent = true, desc = "Rust open cargo" })
+vim.keymap.set('n', '<leader>rp', ':RustParentModule<CR>', { noremap = true, silent = true, desc = "Rust parent module" })
+vim.keymap.set('n', '<leader>rd', ':RustDebuggables<CR>', { noremap = true, silent = true, desc = "Rust debuggables" })
 
 -- Create autocmd group for Rust settings
 local rust_group = vim.api.nvim_create_augroup('RustSettings', { clear = true })
@@ -648,16 +716,18 @@ vim.api.nvim_create_autocmd('FileType', {
   group = rust_group,
 })
 
--- Zig language settings (since you mentioned Zig in your requirements)
-lspconfig.zls.setup {}
-
--- JavaScript settings
+-- JavaScript settings with JSDoc focus
 local js_group = vim.api.nvim_create_augroup('JavaScriptSettings', { clear = true })
 vim.api.nvim_create_autocmd('FileType', {
-  pattern = {'javascript', 'typescript', 'javascriptreact', 'typescriptreact'},
+  pattern = {'javascript'},
   callback = function()
     vim.opt_local.tabstop = 2
     vim.opt_local.shiftwidth = 2
+    -- Auto-format on save
+    vim.api.nvim_create_autocmd('BufWritePre', {
+      buffer = 0,
+      callback = function() vim.lsp.buf.format() end,
+    })
   end,
   group = js_group,
 })
