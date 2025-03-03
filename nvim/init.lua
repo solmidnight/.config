@@ -694,6 +694,49 @@ vim.keymap.set('n', '<C-Down>', '<cmd>resize +2<CR>', { desc = "Increase window 
 vim.keymap.set('n', '<C-Left>', '<cmd>vertical resize -2<CR>', { desc = "Decrease window width" })
 vim.keymap.set('n', '<C-Right>', '<cmd>vertical resize +2<CR>', { desc = "Increase window width" })
 
+-- Updated Telescope code actions mapping
+vim.keymap.set("n", "<leader>ca", function()
+  -- Check if telescope is available first to avoid nil errors
+  local ok, telescope = pcall(require, "telescope.builtin")
+  if not ok then
+    -- Fallback to native LSP if telescope isn't available
+    vim.lsp.buf.code_action()
+    return
+  end
+  
+  -- Use the correct function name for your Telescope version
+  if telescope.lsp_code_actions then
+    telescope.lsp_code_actions()
+  elseif telescope.lsp_actions then
+    telescope.lsp_actions()
+  else
+    -- Another fallback to built-in code actions
+    vim.lsp.buf.code_action()
+  end
+end, { desc = "Code Actions (Telescope)" })
+vim.keymap.set('n', '<leader>ww', '<C-w>k', { desc = "Move to window above" })
+
+-- Space + A: Move to the window on the left
+vim.keymap.set('n', '<leader>aa', '<C-w>h', { desc = "Move to window left" })
+
+-- Space + S: Move to the window below
+vim.keymap.set('n', '<leader>ss', '<C-w>j', { desc = "Move to window below" })
+
+-- Space + D: Move to the window on the right
+vim.keymap.set('n', '<leader>dd', '<C-w>l', { desc = "Move to window right" })
+
+-- Optional: Space + E to equalize window sizes
+vim.keymap.set('n', '<leader>ee', '<C-w>=', { desc = "Equalize window sizes" })
+
+-- Optional: Space + R to rotate windows
+vim.keymap.set('n', '<leader>rr', '<C-w>r', { desc = "Rotate windows" })
+
+-- Vertical split (creates a new window to the right)
+vim.keymap.set('n', '<leader>sv', ':vsplit<CR>', { desc = "Split window vertically", silent = true })
+
+-- Horizontal split (creates a new window below)
+vim.keymap.set('n', '<leader>sh', ':split<CR>', { desc = "Split window horizontally", silent = true })
+
 -- Buffer navigation
 vim.keymap.set('n', '<S-l>', '<cmd>bnext<CR>', { desc = "Next buffer" })
 vim.keymap.set('n', '<S-h>', '<cmd>bprevious<CR>', { desc = "Previous buffer" })

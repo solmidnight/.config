@@ -1,0 +1,6 @@
+background-opacity=0.85
+background-blur-radius=20
+theme=xcodedarkhc
+font-size=32
+font-family=Fira-Code
+keybind = cmd+a=unbind
