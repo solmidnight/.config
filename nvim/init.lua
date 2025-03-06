@@ -1,5 +1,5 @@
 -- init.lua
--- Neovim configuration for Rust development
+-- Neovim configuration for Rust development with enhanced debugging support
 
 -- Basic settings
 vim.opt.number = true            -- Show line numbers
@@ -139,9 +139,16 @@ require("lazy").setup({
   -- Comments
   { 'numToStr/Comment.nvim' },
   
-  -- Debugging
+  -- Enhanced debugging setup
   { 'mfussenegger/nvim-dap' },
   { 'rcarriga/nvim-dap-ui' },
+  { 'theHamsta/nvim-dap-virtual-text' }, -- Virtual text for debug info
+  { 'nvim-telescope/telescope-dap.nvim' }, -- Telescope integration for DAP
+  { 'jbyuki/one-small-step-for-vimkind' }, -- Lua debugger
+  { 'leoluz/nvim-dap-go' }, -- Go debugger
+  
+  -- Specific Rust debugging support
+  { 'simrat39/rust-tools.nvim' }, -- Already included above, but kept here for clarity
 })
 
 -- Theme setup
@@ -179,6 +186,10 @@ require("catppuccin").setup({
     telescope = true,
     treesitter = true,
     which_key = true,
+    dap = {
+      enabled = true,
+      enable_ui = true, -- enable nvim-dap-ui
+    },
   },
 })
 
@@ -213,6 +224,7 @@ require("mason-lspconfig").setup({
     "rust_analyzer",  -- Rust
     "zls",            -- Zig
     "eslint",         -- JavaScript
+    "codelldb",       -- Important for Rust debugging
   },
   automatic_installation = true,
 })
@@ -322,6 +334,9 @@ require('telescope').setup {
       override_generic_sorter = true,
       override_file_sorter = true,
       case_mode = "smart_case",
+    },
+    dap = {
+      -- Enable or disable dap extension features
     }
   }
 }
@@ -329,11 +344,260 @@ require('telescope').setup {
 -- Load telescope extensions
 pcall(require('telescope').load_extension, 'fzf')
 pcall(require('telescope').load_extension, 'ui-select')
+pcall(require('telescope').load_extension, 'dap')
+
+-- Enhanced DAP Setup
+local dap = require('dap')
+local dapui = require('dapui')
+local dap_virtual_text = require('nvim-dap-virtual-text')
+
+-- Setup virtual text for debugging
+dap_virtual_text.setup({
+  enabled = true,                  -- Enable virtual text
+  enabled_commands = true,         -- Create commands
+  highlight_changed_variables = true, -- Highlight changed values
+  highlight_new_as_changed = false, -- Highlight new variables
+  show_stop_reason = true,        -- Show stop reason
+  commented = false,              -- Prefix virtual text with comment
+  only_first_definition = true,   -- Only show virtual text for first definition
+  all_references = false,         -- Show virtual text on all references
+})
+
+-- DAP UI Setup
+dapui.setup({
+  icons = { 
+    expanded = "▾", 
+    collapsed = "▸", 
+    current_frame = "▸" 
+  },
+  mappings = {
+    -- Use a table to apply multiple mappings
+    expand = { "<CR>", "<2-LeftMouse>" },
+    open = "o",
+    remove = "d",
+    edit = "e",
+    repl = "r",
+    toggle = "t",
+  },
+  -- Expand lines larger than the window
+  expand_lines = vim.fn.has("nvim-0.7") == 1,
+  layouts = {
+    {
+      elements = {
+        -- Elements can be strings or table with id and size keys.
+        { id = "scopes", size = 0.25 },
+        "breakpoints",
+        "stacks",
+        "watches",
+      },
+      size = 40, -- 40 columns
+      position = "left",
+    },
+    {
+      elements = {
+        "repl",
+        "console",
+      },
+      size = 0.25, -- 25% of total lines
+      position = "bottom",
+    },
+  },
+  controls = {
+    -- Requires Neovim 0.8
+    enabled = true,
+    -- Display controls in this element
+    element = "repl",
+    icons = {
+      pause = "",
+      play = "",
+      step_into = "",
+      step_over = "",
+      step_out = "",
+      step_back = "",
+      run_last = "",
+      terminate = "",
+    },
+  },
+  floating = {
+    max_height = nil, -- These can be integers or a float between 0 and 1.
+    max_width = nil, -- Floats will be treated as percentage of your screen.
+    border = "rounded", -- Border style. Can be "single", "double" or "rounded"
+    mappings = {
+      close = { "q", "<Esc>" },
+    },
+  },
+  windows = { indent = 1 },
+  render = { 
+    max_type_length = nil,
+    max_value_lines = 100,
+  }
+})
+
+-- Find and use the correct path for codelldb binary from Mason
+local extension_path
+local codelldb_path
+local liblldb_path
+
+-- First, check if Mason has installed codelldb
+local mason_registry = require("mason-registry")
+local codelldb_pkg = mason_registry.get_package("codelldb")
+if codelldb_pkg and codelldb_pkg:is_installed() then
+  extension_path = codelldb_pkg:get_install_path()
+  
+  -- Set paths based on OS
+  if vim.fn.has("mac") == 1 then
+    codelldb_path = extension_path .. "/extension/adapter/codelldb"
+    liblldb_path = extension_path .. "/extension/lldb/lib/liblldb.dylib"
+  elseif vim.fn.has("unix") == 1 then
+    codelldb_path = extension_path .. "/extension/adapter/codelldb"
+    liblldb_path = extension_path .. "/extension/lldb/lib/liblldb.so"
+  elseif vim.fn.has("win32") == 1 then
+    codelldb_path = extension_path .. "\\extension\\adapter\\codelldb.exe"
+    liblldb_path = extension_path .. "\\extension\\lldb\\bin\\liblldb.dll"
+  end
+else
+  -- Fallback paths
+  if vim.fn.has("mac") == 1 then
+    codelldb_path = "/usr/local/bin/codelldb"
+    liblldb_path = "/usr/local/opt/llvm/lib/liblldb.dylib"
+  elseif vim.fn.has("unix") == 1 then
+    codelldb_path = "/usr/bin/codelldb"
+    liblldb_path = "/usr/lib/liblldb.so"
+  end
+end
+
+-- Configure the Rust DAP adapter
+dap.adapters.codelldb = {
+  type = 'server',
+  port = "${port}",
+  executable = {
+    command = codelldb_path,
+    args = {"--port", "${port}"},
+    -- On windows you may have to uncomment this:
+    -- detached = false,
+  }
+}
+
+-- Configure Rust DAP
+dap.configurations.rust = {
+  {
+    name = "Launch file",
+    type = "codelldb",
+    request = "launch",
+    program = function()
+      return vim.fn.input('Path to executable: ', vim.fn.getcwd() .. '/target/debug/', 'file')
+    end,
+    cwd = '${workspaceFolder}',
+    stopOnEntry = false,
+    args = {},
+    runInTerminal = false,
+    -- If specified, use the liblldb from this path
+    -- initCommands = function()
+    --   if liblldb_path then
+    --     return { "command script import " .. liblldb_path }
+    --   else
+    --     return {}
+    --   end
+    -- end,
+  },
+  {
+    name = "Attach to process",
+    type = "codelldb",
+    request = "attach",
+    processId = require('dap.utils').pick_process,
+    cwd = '${workspaceFolder}',
+  },
+  {
+    name = "Run with arguments",
+    type = "codelldb",
+    request = "launch",
+    program = function()
+      return vim.fn.input('Path to executable: ', vim.fn.getcwd() .. '/target/debug/', 'file')
+    end,
+    cwd = '${workspaceFolder}',
+    args = function()
+      local args_string = vim.fn.input('Arguments: ')
+      return vim.split(args_string, " ")
+    end,
+    stopOnEntry = false,
+    runInTerminal = false,
+  },
+}
+
+-- DAP UI auto open/close
+dap.listeners.after.event_initialized["dapui_config"] = function()
+  dapui.open()
+end
+dap.listeners.before.event_terminated["dapui_config"] = function()
+  dapui.close()
+end
+dap.listeners.before.event_exited["dapui_config"] = function()
+  dapui.close()
+end
+
+-- Key mappings for debugging
+-- Basic debugging operations
+vim.keymap.set('n', '<leader>db', dap.toggle_breakpoint, { desc = "Toggle breakpoint" })
+vim.keymap.set('n', '<leader>dB', function()
+  dap.set_breakpoint(vim.fn.input('Breakpoint condition: '))
+end, { desc = "Set conditional breakpoint" })
+vim.keymap.set('n', '<leader>dc', dap.continue, { desc = "Continue" })
+vim.keymap.set('n', '<leader>dn', dap.step_over, { desc = "Step over" })
+vim.keymap.set('n', '<leader>di', dap.step_into, { desc = "Step into" })
+vim.keymap.set('n', '<leader>do', dap.step_out, { desc = "Step out" })
+vim.keymap.set('n', '<leader>dt', dap.terminate, { desc = "Terminate" })
+
+-- Advanced debugging operations
+vim.keymap.set('n', '<leader>dR', dap.run_to_cursor, { desc = "Run to cursor" })
+vim.keymap.set('n', '<leader>dE', function()
+  dapui.eval(vim.fn.input('Expression: '))
+end, { desc = "Evaluate expression" })
+vim.keymap.set('n', '<leader>dC', function()
+  dap.set_breakpoint(nil, nil, vim.fn.input('Log message: '))
+end, { desc = "Breakpoint with log message" })
+vim.keymap.set('n', '<leader>dr', dap.repl.open, { desc = "Open REPL" })
+vim.keymap.set('n', '<leader>dl', dap.run_last, { desc = "Run last" })
+
+-- DAP UI specific keybindings
+vim.keymap.set('n', '<leader>dut', dapui.toggle, { desc = "Toggle DAP UI" })
+vim.keymap.set('n', '<leader>due', dapui.eval, { desc = "Evaluate expression (UI)" })
+vim.keymap.set('v', '<leader>due', dapui.eval, { desc = "Evaluate selection (UI)" })
+vim.keymap.set('n', '<leader>duf', function() 
+  dapui.float_element("scopes") 
+end, { desc = "Float scopes" })
+
+-- Rust-specific debugging
+vim.keymap.set('n', '<leader>drd', function()
+  -- Check if rust-analyzer is available
+  local clients = vim.lsp.get_active_clients()
+  local has_rust = false
+  for _, client in pairs(clients) do
+    if client.name == "rust_analyzer" then
+      has_rust = true
+      break
+    end
+  end
+  
+  if has_rust then
+    -- Use rust-tools debuggables
+    require('rust-tools').debuggables.debuggables()
+  else
+    -- Fallback to regular dap
+    dap.continue()
+    print("rust-analyzer not active, using regular debugger")
+  end
+end, { desc = "Run Rust debuggables" })
+
+-- Telescope DAP integration
+vim.keymap.set('n', '<leader>dft', function() require('telescope').extensions.dap.frames{} end, { desc = "DAP list frames" })
+vim.keymap.set('n', '<leader>dfc', function() require('telescope').extensions.dap.commands{} end, { desc = "DAP list commands" })
+vim.keymap.set('n', '<leader>dfb', function() require('telescope').extensions.dap.list_breakpoints{} end, { desc = "DAP list breakpoints" })
+vim.keymap.set('n', '<leader>dfv', function() require('telescope').extensions.dap.variables{} end, { desc = "DAP list variables" })
 
 -- LSP setup
 local lspconfig = require('lspconfig')
 
--- Rust LSP setup via rust-tools
+-- Rust LSP setup via rust-tools with debugging integration
 require('rust-tools').setup({
   server = {
     on_attach = function(client, bufnr)
@@ -359,11 +623,21 @@ require('rust-tools').setup({
         },
         cargo = {
           loadOutDirsFromCheck = true,
+          buildScripts = {
+            enable = true,
+          },
         },
         procMacro = {
           enable = true,
         },
       },
+    },
+  },
+  dap = {
+    adapter = {
+      type = 'executable',
+      command = codelldb_path,
+      name = 'rt_lldb',
     },
   },
 })
@@ -474,14 +748,32 @@ end, {})
 -- Add keybinding to toggle distraction-free mode
 vim.keymap.set('n', '<leader>z', ':ToggleDistractionFree<CR>', { desc = "Toggle distraction-free mode" })
 
--- Lualine setup
+-- Lualine setup with DAP integration
 require('lualine').setup {
   options = {
     icons_enabled = true,
     theme = 'catppuccin',
     component_separators = { left = '', right = ''},
     section_separators = { left = '', right = ''},
-  }
+  },
+  sections = {
+    lualine_a = {'mode'},
+    lualine_b = {'branch', 'diff', 'diagnostics'},
+    lualine_c = {'filename'},
+    lualine_x = {
+      {
+        function()
+          return require("dap").status()
+        end,
+        cond = function()
+          return package.loaded["dap"] and require("dap").status() ~= ""
+        end,
+      },
+      'encoding', 'fileformat', 'filetype'
+    },
+    lualine_y = {'progress'},
+    lualine_z = {'location'}
+  },
 }
 
 -- Gitsigns setup
@@ -542,7 +834,38 @@ wk.register({
   },
   b = { name = "Buffer" },
   r = { name = "Rust" },
-  d = { name = "Debug" },
+  d = { 
+    name = "Debug",
+    b = "Toggle Breakpoint",
+    B = "Conditional Breakpoint",
+    c = "Continue",
+    n = "Step Over",
+    i = "Step Into",
+    o = "Step Out",
+    t = "Terminate",
+    r = "Open REPL",
+    l = "Run Last",
+    R = "Run to Cursor",
+    E = "Evaluate Expression",
+    C = "Breakpoint with Message",
+    u = {
+      name = "UI",
+      t = "Toggle UI",
+      e = "Evaluate",
+      f = "Float Element",
+    },
+    f = {
+      name = "Find",
+      t = "Frames",
+      c = "Commands",
+      b = "Breakpoints",
+      v = "Variables",
+    },
+    r = {
+      name = "Rust",
+      d = "Rust Debuggables",
+    },
+  },
   g = { name = "Git" },
   j = { name = "JavaScript" },
   z = { name = "Zig" },
@@ -550,128 +873,6 @@ wk.register({
 
 -- Comment setup
 require('Comment').setup()
-
--- DAP setup for debugging
-local dap = require('dap')
-local dapui = require('dapui')
-
-dapui.setup({
-  icons = { expanded = "▾", collapsed = "▸", current_frame = "▸" },
-  mappings = {
-    -- Use a table to apply multiple mappings
-    expand = { "<CR>", "<2-LeftMouse>" },
-    open = "o",
-    remove = "d",
-    edit = "e",
-    repl = "r",
-    toggle = "t",
-  },
-  -- Expand lines larger than the window
-  expand_lines = vim.fn.has("nvim-0.7") == 1,
-  layouts = {
-    {
-      elements = {
-        -- Elements can be strings or table with id and size keys.
-        { id = "scopes", size = 0.25 },
-        "breakpoints",
-        "stacks",
-        "watches",
-      },
-      size = 40, -- 40 columns
-      position = "left",
-    },
-    {
-      elements = {
-        "repl",
-        "console",
-      },
-      size = 0.25, -- 25% of total lines
-      position = "bottom",
-    },
-  },
-  controls = {
-    -- Requires Neovim nightly (or 0.8 when released)
-    enabled = true,
-    -- Display controls in this element
-    element = "repl",
-    icons = {
-      pause = "",
-      play = "",
-      step_into = "",
-      step_over = "",
-      step_out = "",
-      step_back = "",
-      run_last = "",
-      terminate = "",
-    },
-  },
-  floating = {
-    max_height = nil, -- These can be integers or a float between 0 and 1.
-    max_width = nil, -- Floats will be treated as percentage of your screen.
-    border = "rounded", -- Border style. Can be "single", "double" or "rounded"
-    mappings = {
-      close = { "q", "<Esc>" },
-    },
-  },
-  windows = { indent = 1 },
-  render = { 
-    max_type_length = nil,
-    max_value_lines = 100,
-  }
-})
-
--- Configure Rust debugging
-dap.adapters.lldb = {
-  type = 'executable',
-  command = '/usr/bin/lldb-vscode', -- Adjust this path to your system
-  name = 'lldb'
-}
-
-dap.configurations.rust = {
-  {
-    name = "Launch",
-    type = "lldb",
-    request = "launch",
-    program = function()
-      return vim.fn.input('Path to executable: ', vim.fn.getcwd() .. '/target/debug/', 'file')
-    end,
-    cwd = '${workspaceFolder}',
-    stopOnEntry = false,
-    args = {},
-    runInTerminal = false,
-  },
-}
-
--- DAP UI auto open/close
-dap.listeners.after.event_initialized["dapui_config"] = function()
-  dapui.open()
-end
-dap.listeners.before.event_terminated["dapui_config"] = function()
-  dapui.close()
-end
-dap.listeners.before.event_exited["dapui_config"] = function()
-  dapui.close()
-end
-
--- Key mappings for debugging
-vim.keymap.set('n', '<leader>db', dap.toggle_breakpoint, { desc = "Toggle breakpoint" })
-vim.keymap.set('n', '<leader>dB', function()
-  dap.set_breakpoint(vim.fn.input('Breakpoint condition: '))
-end, { desc = "Set conditional breakpoint" })
-vim.keymap.set('n', '<leader>dc', dap.continue, { desc = "Continue" })
-vim.keymap.set('n', '<leader>dn', dap.step_over, { desc = "Step over" })
-vim.keymap.set('n', '<leader>di', dap.step_into, { desc = "Step into" })
-vim.keymap.set('n', '<leader>do', dap.step_out, { desc = "Step out" })
-vim.keymap.set('n', '<leader>dt', dap.terminate, { desc = "Terminate" })
-vim.keymap.set('n', '<leader>dR', dap.run_to_cursor, { desc = "Run to cursor" })
-vim.keymap.set('n', '<leader>dE', function()
-  dapui.eval(vim.fn.input('Expression: '))
-end, { desc = "Evaluate expression" })
-vim.keymap.set('n', '<leader>dC', function()
-  dap.set_breakpoint(nil, nil, vim.fn.input('Log message: '))
-end, { desc = "Breakpoint with log message" })
-vim.keymap.set('n', '<leader>dr', dap.repl.open, { desc = "Open REPL" })
-vim.keymap.set('n', '<leader>dl', dap.run_last, { desc = "Run last" })
 
 -- Custom key mappings
 -- General workflow keys
@@ -802,3 +1003,178 @@ vim.api.nvim_create_autocmd('FileType', {
   end,
   group = js_group,
 })
+
+-- Debug Utils - Automatically locate executables for Cargo projects
+local function get_cargo_targets()
+  local targets = {}
+  local cargo_path = vim.fn.getcwd() .. "/Cargo.toml"
+  
+  -- Check if Cargo.toml exists
+  if vim.fn.filereadable(cargo_path) == 0 then
+    return targets
+  end
+  
+  -- Use cargo metadata to get target information
+  local metadata_cmd = "cargo metadata --format-version 1 --no-deps"
+  local metadata_handle = io.popen(metadata_cmd)
+  
+  if metadata_handle then
+    local metadata_output = metadata_handle:read("*a")
+    metadata_handle:close()
+    
+    -- Parse JSON output (basic parsing)
+    local decoded_ok, metadata = pcall(vim.fn.json_decode, metadata_output)
+    if decoded_ok and metadata and metadata.packages and #metadata.packages > 0 then
+      local package = metadata.packages[1] -- Take the first package
+      
+      -- Process targets
+      for _, target in ipairs(package.targets or {}) do
+        if target.kind then
+          for _, kind in ipairs(target.kind) do
+            if kind == "bin" or kind == "example" or kind == "test" then
+              local bin_name = target.name
+              local bin_path = vim.fn.getcwd() .. "/target/debug/" .. bin_name
+              table.insert(targets, {name = bin_name, path = bin_path})
+            end
+          end
+        end
+      end
+    end
+  end
+  
+  return targets
+end
+
+-- Add a command to list and select cargo targets for debugging
+vim.api.nvim_create_user_command('RustDebugTargets', function()
+  local targets = get_cargo_targets()
+  
+  if #targets == 0 then
+    print("No Rust binary targets found. Are you in a Cargo project?")
+    return
+  end
+  
+  -- Print targets with numbers for selection
+  print("Available binary targets:")
+  for i, target in ipairs(targets) do
+    print(i .. ": " .. target.name .. " (" .. target.path .. ")")
+  end
+  
+  -- Ask for selection
+  vim.ui.input({prompt = "Select target number to debug: "}, function(input)
+    if not input or input == "" then return end
+    
+    local idx = tonumber(input)
+    if not idx or idx < 1 or idx > #targets then
+      print("Invalid selection")
+      return
+    end
+    
+    local selected = targets[idx]
+    print("Debugging: " .. selected.name)
+    
+    -- Configure and start debugging session
+    dap.run({
+      type = "codelldb",
+      request = "launch",
+      program = selected.path,
+      cwd = vim.fn.getcwd(),
+      stopOnEntry = false,
+      args = {},
+      runInTerminal = false,
+    })
+  end)
+end, {})
+
+-- Add shortcut for listing Rust debug targets
+vim.keymap.set('n', '<leader>drl', ':RustDebugTargets<CR>', { noremap = true, silent = true, desc = "List Rust debug targets" })
+
+-- Create sign definitions for DAP breakpoints
+vim.fn.sign_define('DapBreakpoint', { text='●', texthl='DiagnosticSignError', linehl='', numhl='' })
+vim.fn.sign_define('DapBreakpointCondition', { text='◆', texthl='DiagnosticSignWarn', linehl='', numhl='' })
+vim.fn.sign_define('DapLogPoint', { text='◆', texthl='DiagnosticSignInfo', linehl='', numhl='' })
+vim.fn.sign_define('DapStopped', { text='→', texthl='DiagnosticSignHint', linehl='DebuggerLine', numhl='' })
+vim.fn.sign_define('DapBreakpointRejected', { text='●', texthl='DiagnosticSignHint', linehl='', numhl='' })
+
+-- Add Rust hover actions to show type details
+-- Only if rust-tools is present
+if package.loaded["rust-tools"] then
+  vim.keymap.set("n", "<leader>ra", function()
+    require("rust-tools").hover_actions.hover_actions()
+  end, { desc = "Rust hover actions" })
+end
+
+-- Create a function to auto-build and debug Rust
+function BuildAndDebugRust()
+  -- Check if it's a Rust project
+  if vim.fn.filereadable("Cargo.toml") == 0 then
+    print("Not a Cargo project (no Cargo.toml found)")
+    return
+  end
+  
+  -- Build the project
+  vim.cmd("echo 'Building project...'")
+  
+  -- Run cargo build in a job so we don't block neovim
+  local job_id = vim.fn.jobstart("cargo build", {
+    on_exit = function(_, exit_code)
+      if exit_code ~= 0 then
+        print("Build failed with exit code: " .. exit_code)
+        return
+      end
+      
+      print("Build successful, starting debugger...")
+      
+      -- Get targets and pick the first binary if available
+      local targets = get_cargo_targets()
+      if #targets == 0 then
+        print("No binary targets found")
+        return
+      end
+      
+      -- Debug the first binary
+      local target_path = targets[1].path
+      dap.run({
+        type = "codelldb",
+        request = "launch",
+        program = target_path,
+        cwd = "${workspaceFolder}",
+        stopOnEntry = false,
+        args = {},
+        runInTerminal = false,
+      })
+    end,
+    stdout_buffered = true,
+    stderr_buffered = true,
+    on_stdout = function(_, data)
+      if data then
+        vim.schedule(function()
+          for _, line in ipairs(data) do
+            if line ~= "" then
+              print(line)
+            end
+          end
+        end)
+      end
+    end,
+    on_stderr = function(_, data)
+      if data then
+        vim.schedule(function()
+          for _, line in ipairs(data) do
+            if line ~= "" then
+              print(line)
+            end
+          end
+        end)
+      end
+    end
+  })
+  
+  if job_id <= 0 then
+    print("Failed to start cargo build")
+  end
+end
+
+-- Add command for quick build and debug
+vim.api.nvim_create_user_command('RustBuildAndDebug', BuildAndDebugRust, {})
+vim.keymap.set('n', '<leader>drb', ':RustBuildAndDebug<CR>', { noremap = true, desc = "Build and debug Rust" })
