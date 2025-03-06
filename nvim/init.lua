@@ -491,14 +491,6 @@ dap.configurations.rust = {
     stopOnEntry = false,
     args = {},
     runInTerminal = false,
-    -- If specified, use the liblldb from this path
-    -- initCommands = function()
-    --   if liblldb_path then
-    --     return { "command script import " .. liblldb_path }
-    --   else
-    --     return {}
-    --   end
-    -- end,
   },
   {
     name = "Attach to process",
@@ -521,6 +513,52 @@ dap.configurations.rust = {
     end,
     stopOnEntry = false,
     runInTerminal = false,
+  },
+  -- Add build.rs debug configuration
+  {
+    name = "Debug build.rs",
+    type = "codelldb",
+    request = "launch",
+    program = function()
+      -- Find build.rs
+      local build_rs_path = vim.fn.getcwd() .. "/build.rs"
+      if vim.fn.filereadable(build_rs_path) ~= 1 then
+        print("No build.rs found in project root")
+        return nil
+      end
+      
+      -- Create a temporary executable for build.rs
+      local tmp_dir = vim.fn.expand("$HOME/.cache/nvim/rust_build_debug")
+      vim.fn.mkdir(tmp_dir, "p")
+      local exec_path = tmp_dir .. "/build_rs_debug"
+      
+      -- Compile using rustc with debug info
+      local cmd = string.format(
+          "rustc %s -o %s -g --edition=2021", 
+          build_rs_path, 
+          exec_path
+      )
+      
+      print("Compiling build.rs: " .. cmd)
+      local result = vim.fn.system(cmd)
+      
+      if vim.v.shell_error ~= 0 then
+          print("Failed to compile build.rs: " .. result)
+          return nil
+      end
+      
+      return exec_path
+    end,
+    cwd = "${workspaceFolder}",
+    stopOnEntry = false,
+    args = {},
+    env = function()
+      -- Basic environment for build scripts
+      return {
+        ["CARGO_MANIFEST_DIR"] = vim.fn.getcwd(),
+        ["OUT_DIR"] = vim.fn.getcwd() .. "/target/debug/build/tmp/out"
+      }
+    end,
   },
 }
 
@@ -555,7 +593,7 @@ end, { desc = "Evaluate expression" })
 vim.keymap.set('n', '<leader>dC', function()
   dap.set_breakpoint(nil, nil, vim.fn.input('Log message: '))
 end, { desc = "Breakpoint with log message" })
-vim.keymap.set('n', '<leader>dr', dap.repl.open, { desc = "Open REPL" })
+vim.keymap.set('n', '<leader>dp', dap.repl.open, { desc = "Open REPL" }) -- Changed from dr to dp to avoid conflict
 vim.keymap.set('n', '<leader>dl', dap.run_last, { desc = "Run last" })
 
 -- DAP UI specific keybindings
@@ -566,27 +604,11 @@ vim.keymap.set('n', '<leader>duf', function()
   dapui.float_element("scopes") 
 end, { desc = "Float scopes" })
 
--- Rust-specific debugging
-vim.keymap.set('n', '<leader>drd', function()
-  -- Check if rust-analyzer is available
-  local clients = vim.lsp.get_active_clients()
-  local has_rust = false
-  for _, client in pairs(clients) do
-    if client.name == "rust_analyzer" then
-      has_rust = true
-      break
-    end
-  end
-  
-  if has_rust then
-    -- Use rust-tools debuggables
-    require('rust-tools').debuggables.debuggables()
-  else
-    -- Fallback to regular dap
-    dap.continue()
-    print("rust-analyzer not active, using regular debugger")
-  end
-end, { desc = "Run Rust debuggables" })
+-- Rust-specific debugging commands under <leader>dr namespace
+vim.keymap.set('n', '<leader>drb', ':RustBuildAndDebug<CR>', { noremap = true, desc = "Build and debug Rust" })
+vim.keymap.set('n', '<leader>drl', ':RustDebugTargets<CR>', { noremap = true, silent = true, desc = "List Rust debug targets" })
+vim.keymap.set('n', '<leader>drd', ':RustDebuggables<CR>', { noremap = true, silent = true, desc = "Rust debuggables" })
+vim.keymap.set('n', '<leader>drx', ':DebugBuildRs<CR>', { noremap = true, silent = true, desc = "Debug build.rs" })
 
 -- Telescope DAP integration
 vim.keymap.set('n', '<leader>dft', function() require('telescope').extensions.dap.frames{} end, { desc = "DAP list frames" })
@@ -843,7 +865,7 @@ wk.register({
     i = "Step Into",
     o = "Step Out",
     t = "Terminate",
-    r = "Open REPL",
+    p = "Open REPL", -- Changed from r to p
     l = "Run Last",
     R = "Run to Cursor",
     E = "Evaluate Expression",
@@ -863,7 +885,10 @@ wk.register({
     },
     r = {
       name = "Rust",
-      d = "Rust Debuggables",
+      b = "Build and debug",
+      l = "List debug targets",
+      d = "Rust debuggables",
+      x = "Debug build.rs",
     },
   },
   g = { name = "Git" },
@@ -873,136 +898,6 @@ wk.register({
 
 -- Comment setup
 require('Comment').setup()
-
--- Custom key mappings
--- General workflow keys
-vim.keymap.set('n', '<leader>w', '<cmd>silent w<CR>', { desc = "Save file" })
-vim.keymap.set('n', '<leader>q', '<cmd>silent q<CR>', { desc = "Quit" })
-vim.keymap.set('n', '<leader>Q', '<cmd>silent q!<CR>', { desc = "Force quit" })
-vim.keymap.set('n', '<C-s>', '<cmd>silent w<CR>', { desc = "Save file" })
-vim.keymap.set('n', '<leader>bk', '<cmd>silent bdelete<CR>', { desc = "Kill buffer" })
-vim.keymap.set('n', '<leader>/', '<cmd>silent nohlsearch<CR>', { desc = "Clear search highlight" })
-
--- Window navigation
-vim.keymap.set('n', '<C-h>', '<C-w>h', { desc = "Move to left window" })
-vim.keymap.set('n', '<C-j>', '<C-w>j', { desc = "Move to bottom window" })
-vim.keymap.set('n', '<C-k>', '<C-w>k', { desc = "Move to top window" })
-vim.keymap.set('n', '<C-l>', '<C-w>l', { desc = "Move to right window" })
-
--- Resize windows
-vim.keymap.set('n', '<C-Up>', '<cmd>resize -2<CR>', { desc = "Decrease window height" })
-vim.keymap.set('n', '<C-Down>', '<cmd>resize +2<CR>', { desc = "Increase window height" })
-vim.keymap.set('n', '<C-Left>', '<cmd>vertical resize -2<CR>', { desc = "Decrease window width" })
-vim.keymap.set('n', '<C-Right>', '<cmd>vertical resize +2<CR>', { desc = "Increase window width" })
-
--- Updated Telescope code actions mapping
-vim.keymap.set("n", "<leader>ca", function()
-  -- Check if telescope is available first to avoid nil errors
-  local ok, telescope = pcall(require, "telescope.builtin")
-  if not ok then
-    -- Fallback to native LSP if telescope isn't available
-    vim.lsp.buf.code_action()
-    return
-  end
-  
-  -- Use the correct function name for your Telescope version
-  if telescope.lsp_code_actions then
-    telescope.lsp_code_actions()
-  elseif telescope.lsp_actions then
-    telescope.lsp_actions()
-  else
-    -- Another fallback to built-in code actions
-    vim.lsp.buf.code_action()
-  end
-end, { desc = "Code Actions (Telescope)" })
-vim.keymap.set('n', '<leader>ww', '<C-w>k', { desc = "Move to window above" })
-
--- Space + A: Move to the window on the left
-vim.keymap.set('n', '<leader>aa', '<C-w>h', { desc = "Move to window left" })
-
--- Space + S: Move to the window below
-vim.keymap.set('n', '<leader>ss', '<C-w>j', { desc = "Move to window below" })
-
--- Space + D: Move to the window on the right
-vim.keymap.set('n', '<leader>dd', '<C-w>l', { desc = "Move to window right" })
-
--- Optional: Space + E to equalize window sizes
-vim.keymap.set('n', '<leader>ee', '<C-w>=', { desc = "Equalize window sizes" })
-
--- Optional: Space + R to rotate windows
-vim.keymap.set('n', '<leader>rr', '<C-w>r', { desc = "Rotate windows" })
-
--- Vertical split (creates a new window to the right)
-vim.keymap.set('n', '<leader>sv', ':vsplit<CR>', { desc = "Split window vertically", silent = true })
-
--- Horizontal split (creates a new window below)
-vim.keymap.set('n', '<leader>sh', ':split<CR>', { desc = "Split window horizontally", silent = true })
-
--- Buffer navigation
-vim.keymap.set('n', '<S-l>', '<cmd>bnext<CR>', { desc = "Next buffer" })
-vim.keymap.set('n', '<S-h>', '<cmd>bprevious<CR>', { desc = "Previous buffer" })
-
--- Better indenting
-vim.keymap.set('v', '<', '<gv', { desc = "Outdent line" })
-vim.keymap.set('v', '>', '>gv', { desc = "Indent line" })
-
--- Move text up and down
-vim.keymap.set('v', '<A-j>', ":m '>+1<CR>gv=gv", { desc = "Move text down" })
-vim.keymap.set('v', '<A-k>', ":m '<-2<CR>gv=gv", { desc = "Move text up" })
-
--- File explorer
-vim.keymap.set('n', '<leader>e', ':NvimTreeToggle<CR>', { noremap = true, silent = true, desc = "Toggle file explorer" })
-
--- Telescope keybindings
-local telescope_builtin = require('telescope.builtin')
-vim.keymap.set('n', '<leader>ff', telescope_builtin.find_files, { desc = "Find files" })
-vim.keymap.set('n', '<leader>fg', telescope_builtin.live_grep, { desc = "Live grep" })
-vim.keymap.set('n', '<leader>fb', telescope_builtin.buffers, { desc = "Find buffers" })
-vim.keymap.set('n', '<leader>fh', telescope_builtin.help_tags, { desc = "Help tags" })
-vim.keymap.set('n', '<leader>fr', telescope_builtin.oldfiles, { desc = "Recent files" })
-vim.keymap.set('n', '<leader>fw', telescope_builtin.grep_string, { desc = "Find word under cursor" })
-vim.keymap.set('n', '<leader>fm', telescope_builtin.marks, { desc = "Find marks" })
-vim.keymap.set('n', '<leader>fc', telescope_builtin.commands, { desc = "Find commands" })
-vim.keymap.set('n', '<leader>fk', telescope_builtin.keymaps, { desc = "Find keymaps" })
-vim.keymap.set('n', '<C-p>', telescope_builtin.git_files, { desc = "Find git files" })
-
--- Rust-specific shortcuts
-vim.keymap.set('n', '<leader>rr', ':RustRunnables<CR>', { noremap = true, silent = true, desc = "Rust runnables" })
-vim.keymap.set('n', '<leader>rt', ':RustTest<CR>', { noremap = true, silent = true, desc = "Rust test" })
-vim.keymap.set('n', '<leader>rm', ':RustExpandMacro<CR>', { noremap = true, silent = true, desc = "Rust expand macro" })
-vim.keymap.set('n', '<leader>rc', ':RustOpenCargo<CR>', { noremap = true, silent = true, desc = "Rust open cargo" })
-vim.keymap.set('n', '<leader>rp', ':RustParentModule<CR>', { noremap = true, silent = true, desc = "Rust parent module" })
-vim.keymap.set('n', '<leader>rd', ':RustDebuggables<CR>', { noremap = true, silent = true, desc = "Rust debuggables" })
-
--- Create autocmd group for Rust settings
-local rust_group = vim.api.nvim_create_augroup('RustSettings', { clear = true })
-vim.api.nvim_create_autocmd('FileType', {
-  pattern = 'rust',
-  callback = function()
-    -- Auto-format on save
-    vim.api.nvim_create_autocmd('BufWritePre', {
-      buffer = 0,
-      callback = function() vim.lsp.buf.format() end,
-    })
-  end,
-  group = rust_group,
-})
-
--- JavaScript settings with JSDoc focus
-local js_group = vim.api.nvim_create_augroup('JavaScriptSettings', { clear = true })
-vim.api.nvim_create_autocmd('FileType', {
-  pattern = {'javascript'},
-  callback = function()
-    vim.opt_local.tabstop = 2
-    vim.opt_local.shiftwidth = 2
-    -- Auto-format on save
-    vim.api.nvim_create_autocmd('BufWritePre', {
-      buffer = 0,
-      callback = function() vim.lsp.buf.format() end,
-    })
-  end,
-  group = js_group,
-})
 
 -- Debug Utils - Automatically locate executables for Cargo projects
 local function get_cargo_targets()
@@ -1086,23 +981,51 @@ vim.api.nvim_create_user_command('RustDebugTargets', function()
   end)
 end, {})
 
--- Add shortcut for listing Rust debug targets
-vim.keymap.set('n', '<leader>drl', ':RustDebugTargets<CR>', { noremap = true, silent = true, desc = "List Rust debug targets" })
-
--- Create sign definitions for DAP breakpoints
-vim.fn.sign_define('DapBreakpoint', { text='●', texthl='DiagnosticSignError', linehl='', numhl='' })
-vim.fn.sign_define('DapBreakpointCondition', { text='◆', texthl='DiagnosticSignWarn', linehl='', numhl='' })
-vim.fn.sign_define('DapLogPoint', { text='◆', texthl='DiagnosticSignInfo', linehl='', numhl='' })
-vim.fn.sign_define('DapStopped', { text='→', texthl='DiagnosticSignHint', linehl='DebuggerLine', numhl='' })
-vim.fn.sign_define('DapBreakpointRejected', { text='●', texthl='DiagnosticSignHint', linehl='', numhl='' })
-
--- Add Rust hover actions to show type details
--- Only if rust-tools is present
-if package.loaded["rust-tools"] then
-  vim.keymap.set("n", "<leader>ra", function()
-    require("rust-tools").hover_actions.hover_actions()
-  end, { desc = "Rust hover actions" })
+-- Create function to debug build.rs
+function Debug_build_rs()
+  -- Create temp directory
+  local tmp_dir = vim.fn.expand("$HOME/.cache/nvim/rust_build_debug")
+  vim.fn.mkdir(tmp_dir, "p")
+  
+  -- Find build.rs
+  local build_rs_path = vim.fn.getcwd() .. "/build.rs"
+  if vim.fn.filereadable(build_rs_path) ~= 1 then
+    print("No build.rs found in project root")
+    return
+  end
+  
+  -- Compile the build script with debug info
+  local cmd = string.format(
+      "rustc %s -o %s -g --edition=2021", 
+      build_rs_path, 
+      tmp_dir .. "/build_debug"
+  )
+  
+  print("Compiling build.rs: " .. cmd)
+  local result = vim.fn.system(cmd)
+  
+  if vim.v.shell_error ~= 0 then
+      print("Failed to compile build.rs: " .. result)
+      return
+  end
+  
+  -- Run the debugger
+  dap.run({
+    type = "codelldb",
+    request = "launch",
+    program = tmp_dir .. "/build_debug",
+    cwd = vim.fn.getcwd(),
+    args = {},
+    env = {
+      ["CARGO_MANIFEST_DIR"] = vim.fn.getcwd(),
+      ["OUT_DIR"] = tmp_dir .. "/out"
+    },
+    stopOnEntry = false
+  })
 end
+
+-- Add the command
+vim.api.nvim_create_user_command('DebugBuildRs', Debug_build_rs, {})
 
 -- Create a function to auto-build and debug Rust
 function BuildAndDebugRust()
@@ -1177,84 +1100,137 @@ end
 
 -- Add command for quick build and debug
 vim.api.nvim_create_user_command('RustBuildAndDebug', BuildAndDebugRust, {})
-vim.keymap.set('n', '<leader>drb', ':RustBuildAndDebug<CR>', { noremap = true, desc = "Build and debug Rust" })
 
--- Add this to your init.lua
--- Function to find build.rs file path
-local function find_build_rs()
-    local build_rs_path = vim.fn.getcwd() .. "/build.rs"
-    if vim.fn.filereadable(build_rs_path) == 1 then
-        return build_rs_path
-    end
-    return nil
+-- Create sign definitions for DAP breakpoints
+vim.fn.sign_define('DapBreakpoint', { text='●', texthl='DiagnosticSignError', linehl='', numhl='' })
+vim.fn.sign_define('DapBreakpointCondition', { text='◆', texthl='DiagnosticSignWarn', linehl='', numhl='' })
+vim.fn.sign_define('DapLogPoint', { text='◆', texthl='DiagnosticSignInfo', linehl='', numhl='' })
+vim.fn.sign_define('DapStopped', { text='→', texthl='DiagnosticSignHint', linehl='DebuggerLine', numhl='' })
+vim.fn.sign_define('DapBreakpointRejected', { text='●', texthl='DiagnosticSignHint', linehl='', numhl='' })
+
+-- Add Rust hover actions to show type details
+-- Only if rust-tools is present
+if package.loaded["rust-tools"] then
+  vim.keymap.set("n", "<leader>ra", function()
+    require("rust-tools").hover_actions.hover_actions()
+  end, { desc = "Rust hover actions" })
 end
 
--- Add configuration for debugging build.rs
-table.insert(dap.configurations.rust, {
-    name = "Debug build.rs",
-    type = "codelldb",
-    request = "launch",
-    program = function()
-        -- Create a temporary executable for build.rs
-        local build_rs = find_build_rs()
-        if not build_rs then
-            print("No build.rs found in project root")
-            return nil
-        end
-        
-        -- Create a shell command to compile build.rs to a temporary executable
-        local tmp_dir = vim.fn.expand("$HOME/.cache/nvim/rust_build_debug")
-        vim.fn.mkdir(tmp_dir, "p")
-        local exec_path = tmp_dir .. "/build_rs_debug"
-        
-        -- Compile using rustc with debug info
-        local cmd = string.format(
-            "rustc %s -o %s -g --edition=2021", 
-            build_rs, 
-            exec_path
-        )
-        
-        print("Compiling build.rs: " .. cmd)
-        local result = vim.fn.system(cmd)
-        
-        if vim.v.shell_error ~= 0 then
-            print("Failed to compile build.rs: " .. result)
-            return nil
-        end
-        
-        return exec_path
-    end,
-    cwd = "${workspaceFolder}",
-    stopOnEntry = false,
-    args = {},
-    env = function()
-        -- Extract environment variables from cargo
-        local env_output = vim.fn.system("cargo build -v")
-        local env_vars = {}
-        
-        -- Try to extract environment variables that Cargo uses
-        for var in string.gmatch(env_output, "([A-Z_]+=\\S+)") do
-            local name, value = string.match(var, "([A-Z_]+)=(.*)")
-            if name and value then
-                env_vars[name] = value
-            end
-        end
-        
-        -- Add common environment variables for build scripts
-        env_vars["CARGO_MANIFEST_DIR"] = vim.fn.getcwd()
-        env_vars["OUT_DIR"] = vim.fn.getcwd() .. "/target/debug/build/your_crate_name/out"
-        
-        return env_vars
-    end,
-    sourceLanguages = {"rust"},
+-- Custom key mappings
+-- General workflow keys
+vim.keymap.set('n', '<leader>w', '<cmd>silent w<CR>', { desc = "Save file" })
+vim.keymap.set('n', '<leader>q', '<cmd>silent q<CR>', { desc = "Quit" })
+vim.keymap.set('n', '<leader>Q', '<cmd>silent q!<CR>', { desc = "Force quit" })
+vim.keymap.set('n', '<C-s>', '<cmd>silent w<CR>', { desc = "Save file" })
+vim.keymap.set('n', '<leader>bk', '<cmd>silent bdelete<CR>', { desc = "Kill buffer" })
+vim.keymap.set('n', '<leader>/', '<cmd>silent nohlsearch<CR>', { desc = "Clear search highlight" })
+
+-- Window navigation
+vim.keymap.set('n', '<C-h>', '<C-w>h', { desc = "Move to left window" })
+vim.keymap.set('n', '<C-j>', '<C-w>j', { desc = "Move to bottom window" })
+vim.keymap.set('n', '<C-k>', '<C-w>k', { desc = "Move to top window" })
+vim.keymap.set('n', '<C-l>', '<C-w>l', { desc = "Move to right window" })
+
+-- Resize windows
+vim.keymap.set('n', '<C-Up>', '<cmd>resize -2<CR>', { desc = "Decrease window height" })
+vim.keymap.set('n', '<C-Down>', '<cmd>resize +2<CR>', { desc = "Increase window height" })
+vim.keymap.set('n', '<C-Left>', '<cmd>vertical resize -2<CR>', { desc = "Decrease window width" })
+vim.keymap.set('n', '<C-Right>', '<cmd>vertical resize +2<CR>', { desc = "Increase window width" })
+
+-- Updated Telescope code actions mapping
+vim.keymap.set("n", "<leader>ca", function()
+  -- Check if telescope is available first to avoid nil errors
+  local ok, telescope = pcall(require, "telescope.builtin")
+  if not ok then
+    -- Fallback to native LSP if telescope isn't available
+    vim.lsp.buf.code_action()
+    return
+  end
+  
+  -- Use the correct function name for your Telescope version
+  if telescope.lsp_code_actions then
+    telescope.lsp_code_actions()
+  elseif telescope.lsp_actions then
+    telescope.lsp_actions()
+  else
+    -- Another fallback to built-in code actions
+    vim.lsp.buf.code_action()
+  end
+end, { desc = "Code Actions (Telescope)" })
+
+-- Additional window navigation with leader keys
+vim.keymap.set('n', '<leader>ww', '<C-w>k', { desc = "Move to window above" })
+vim.keymap.set('n', '<leader>aa', '<C-w>h', { desc = "Move to window left" })
+vim.keymap.set('n', '<leader>ss', '<C-w>j', { desc = "Move to window below" })
+vim.keymap.set('n', '<leader>dd', '<C-w>l', { desc = "Move to window right" })
+vim.keymap.set('n', '<leader>ee', '<C-w>=', { desc = "Equalize window sizes" })
+vim.keymap.set('n', '<leader>rr', '<C-w>r', { desc = "Rotate windows" })
+
+-- Window splitting
+vim.keymap.set('n', '<leader>sv', ':vsplit<CR>', { desc = "Split window vertically", silent = true })
+vim.keymap.set('n', '<leader>sh', ':split<CR>', { desc = "Split window horizontally", silent = true })
+
+-- Buffer navigation
+vim.keymap.set('n', '<S-l>', '<cmd>bnext<CR>', { desc = "Next buffer" })
+vim.keymap.set('n', '<S-h>', '<cmd>bprevious<CR>', { desc = "Previous buffer" })
+
+-- Better indenting
+vim.keymap.set('v', '<', '<gv', { desc = "Outdent line" })
+vim.keymap.set('v', '>', '>gv', { desc = "Indent line" })
+
+-- Move text up and down
+vim.keymap.set('v', '<A-j>', ":m '>+1<CR>gv=gv", { desc = "Move text down" })
+vim.keymap.set('v', '<A-k>', ":m '<-2<CR>gv=gv", { desc = "Move text up" })
+
+-- File explorer
+vim.keymap.set('n', '<leader>e', ':NvimTreeToggle<CR>', { noremap = true, silent = true, desc = "Toggle file explorer" })
+
+-- Telescope keybindings
+local telescope_builtin = require('telescope.builtin')
+vim.keymap.set('n', '<leader>ff', telescope_builtin.find_files, { desc = "Find files" })
+vim.keymap.set('n', '<leader>fg', telescope_builtin.live_grep, { desc = "Live grep" })
+vim.keymap.set('n', '<leader>fb', telescope_builtin.buffers, { desc = "Find buffers" })
+vim.keymap.set('n', '<leader>fh', telescope_builtin.help_tags, { desc = "Help tags" })
+vim.keymap.set('n', '<leader>fr', telescope_builtin.oldfiles, { desc = "Recent files" })
+vim.keymap.set('n', '<leader>fw', telescope_builtin.grep_string, { desc = "Find word under cursor" })
+vim.keymap.set('n', '<leader>fm', telescope_builtin.marks, { desc = "Find marks" })
+vim.keymap.set('n', '<leader>fc', telescope_builtin.commands, { desc = "Find commands" })
+vim.keymap.set('n', '<leader>fk', telescope_builtin.keymaps, { desc = "Find keymaps" })
+vim.keymap.set('n', '<C-p>', telescope_builtin.git_files, { desc = "Find git files" })
+
+-- Rust-specific shortcuts
+vim.keymap.set('n', '<leader>rr', ':RustRunnables<CR>', { noremap = true, silent = true, desc = "Rust runnables" })
+vim.keymap.set('n', '<leader>rt', ':RustTest<CR>', { noremap = true, silent = true, desc = "Rust test" })
+vim.keymap.set('n', '<leader>rm', ':RustExpandMacro<CR>', { noremap = true, silent = true, desc = "Rust expand macro" })
+vim.keymap.set('n', '<leader>rc', ':RustOpenCargo<CR>', { noremap = true, silent = true, desc = "Rust open cargo" })
+vim.keymap.set('n', '<leader>rp', ':RustParentModule<CR>', { noremap = true, silent = true, desc = "Rust parent module" })
+
+-- Create autocmd group for Rust settings
+local rust_group = vim.api.nvim_create_augroup('RustSettings', { clear = true })
+vim.api.nvim_create_autocmd('FileType', {
+  pattern = 'rust',
+  callback = function()
+    -- Auto-format on save
+    vim.api.nvim_create_autocmd('BufWritePre', {
+      buffer = 0,
+      callback = function() vim.lsp.buf.format() end,
+    })
+  end,
+  group = rust_group,
 })
-vim.keymap.set('n', '<leader>drb', function()
-    -- Find the right configuration
-    for _, config in ipairs(dap.configurations.rust) do
-        if config.name == "Debug build.rs" then
-            dap.run(config)
-            return
-        end
-    end
-    print("Debug build.rs configuration not found")
-end, { desc = "Debug build.rs" })
+
+-- JavaScript settings with JSDoc focus
+local js_group = vim.api.nvim_create_augroup('JavaScriptSettings', { clear = true })
+vim.api.nvim_create_autocmd('FileType', {
+  pattern = {'javascript'},
+  callback = function()
+    vim.opt_local.tabstop = 2
+    vim.opt_local.shiftwidth = 2
+    -- Auto-format on save
+    vim.api.nvim_create_autocmd('BufWritePre', {
+      buffer = 0,
+      callback = function() vim.lsp.buf.format() end,
+    })
+  end,
+  group = js_group,
+})
