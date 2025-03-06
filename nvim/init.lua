@@ -1178,3 +1178,83 @@ end
 -- Add command for quick build and debug
 vim.api.nvim_create_user_command('RustBuildAndDebug', BuildAndDebugRust, {})
 vim.keymap.set('n', '<leader>drb', ':RustBuildAndDebug<CR>', { noremap = true, desc = "Build and debug Rust" })
+
+-- Add this to your init.lua
+-- Function to find build.rs file path
+local function find_build_rs()
+    local build_rs_path = vim.fn.getcwd() .. "/build.rs"
+    if vim.fn.filereadable(build_rs_path) == 1 then
+        return build_rs_path
+    end
+    return nil
+end
+
+-- Add configuration for debugging build.rs
+table.insert(dap.configurations.rust, {
+    name = "Debug build.rs",
+    type = "codelldb",
+    request = "launch",
+    program = function()
+        -- Create a temporary executable for build.rs
+        local build_rs = find_build_rs()
+        if not build_rs then
+            print("No build.rs found in project root")
+            return nil
+        end
+        
+        -- Create a shell command to compile build.rs to a temporary executable
+        local tmp_dir = vim.fn.expand("$HOME/.cache/nvim/rust_build_debug")
+        vim.fn.mkdir(tmp_dir, "p")
+        local exec_path = tmp_dir .. "/build_rs_debug"
+        
+        -- Compile using rustc with debug info
+        local cmd = string.format(
+            "rustc %s -o %s -g --edition=2021", 
+            build_rs, 
+            exec_path
+        )
+        
+        print("Compiling build.rs: " .. cmd)
+        local result = vim.fn.system(cmd)
+        
+        if vim.v.shell_error ~= 0 then
+            print("Failed to compile build.rs: " .. result)
+            return nil
+        end
+        
+        return exec_path
+    end,
+    cwd = "${workspaceFolder}",
+    stopOnEntry = false,
+    args = {},
+    env = function()
+        -- Extract environment variables from cargo
+        local env_output = vim.fn.system("cargo build -v")
+        local env_vars = {}
+        
+        -- Try to extract environment variables that Cargo uses
+        for var in string.gmatch(env_output, "([A-Z_]+=\\S+)") do
+            local name, value = string.match(var, "([A-Z_]+)=(.*)")
+            if name and value then
+                env_vars[name] = value
+            end
+        end
+        
+        -- Add common environment variables for build scripts
+        env_vars["CARGO_MANIFEST_DIR"] = vim.fn.getcwd()
+        env_vars["OUT_DIR"] = vim.fn.getcwd() .. "/target/debug/build/your_crate_name/out"
+        
+        return env_vars
+    end,
+    sourceLanguages = {"rust"},
+})
+vim.keymap.set('n', '<leader>drb', function()
+    -- Find the right configuration
+    for _, config in ipairs(dap.configurations.rust) do
+        if config.name == "Debug build.rs" then
+            dap.run(config)
+            return
+        end
+    end
+    print("Debug build.rs configuration not found")
+end, { desc = "Debug build.rs" })
