@@ -107,7 +107,7 @@ require("lazy").setup({
     "williamboman/mason-lspconfig.nvim",
   },
   -- Codelldb
-  "https://github.com/vadimcn/codelldb",
+  "vadimcn/codelldb",
   -- Completion
   { 'hrsh7th/nvim-cmp' },
   { 'hrsh7th/cmp-nvim-lsp' },
