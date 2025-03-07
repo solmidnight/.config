@@ -96,7 +96,7 @@ require("lazy").setup({
     }
   },
   { 'nvim-telescope/telescope-fzf-native.nvim', build = 'make' },
-  
+  "Himujjal/tree-sitter-svelte",
   -- LSP Configuration
   { 'neovim/nvim-lspconfig' },
   { 'simrat39/rust-tools.nvim' },
