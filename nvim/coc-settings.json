@@ -1,0 +1,17 @@
+
+{
+  "languageserver": {
+    "swift": {
+      "command": "xcrun",
+      "args": ["sourcekit-lsp"],
+      "filetypes": ["swift"],
+      "rootPatterns": ["Package.swift", ".git"]
+    }
+  },
+"sourcekit.commandPath": "/Users/sol/.local/bin/sourcekit-lsp-coc",
+"clangd.path": "/opt/homebrew/opt/llvm/bin/clangd",
+  "clangd.arguments": [
+    "--background-index"
+  ],
+  "clangd.compilationDatabasePath": "/Volumes/Workspace/dream/build"
+}
