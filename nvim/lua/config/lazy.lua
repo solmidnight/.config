@@ -33,3 +33,6 @@ require("lazy").setup({
   -- automatically check for plugin updates
   checker = { enabled = true },
 })
+if vim.g.neovide then
+  dofile(vim.fn.stdpath("config") .. "/lua/config/neovide.lua")
+end
