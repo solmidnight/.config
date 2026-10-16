@@ -3,7 +3,7 @@
     -- Readability
     -- --------------------------------------------------------
 
-    vim.o.guifont = "Menlo:h16"
+    vim.o.guifont = "FiraCode Nerd Font:h24"
     vim.opt.linespace = 2
 
     -- Opaque window for maximum code contrast
@@ -28,16 +28,6 @@
     vim.g.neovide_cursor_animate_command_line = true
     vim.g.neovide_cursor_smooth_blink = false
 
-    -- --------------------------------------------------------
-    -- Wireframe cursor VFX
-    -- --------------------------------------------------------
-
-    vim.g.neovide_cursor_vfx_mode = "wireframe"
-    vim.g.neovide_cursor_vfx_opacity = 160.0
-    vim.g.neovide_cursor_vfx_particle_lifetime = 0.45
-    vim.g.neovide_cursor_vfx_particle_highlight_lifetime = 0.12
-    vim.g.neovide_cursor_vfx_particle_density = 0.45
-    vim.g.neovide_cursor_vfx_particle_speed = 8.0
 
     -- --------------------------------------------------------
     -- Scrolling

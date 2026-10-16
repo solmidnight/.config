@@ -2,10 +2,15 @@
 {
   "languageserver": {
     "swift": {
-      "command": "xcrun",
-      "args": ["sourcekit-lsp"],
+      "command": "/Users/sol/.swiftly/bin/sourcekit-lsp",
+      "args": [],
       "filetypes": ["swift"],
-      "rootPatterns": ["Package.swift", ".git"]
+      "rootPatterns": [
+        "Package.swift",
+        "buildServer.json",
+        ".git"
+      ],
+      "formatterPriority": 100
     }
   },
 "sourcekit.commandPath": "/Users/sol/.local/bin/sourcekit-lsp-coc",
